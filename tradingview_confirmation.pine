@@ -1,0 +1,39 @@
+//@version=6
+indicator("Gold Session Lab v2 — MT5 confirmation", overlay=true, max_labels_count=300)
+// Signal adapter for the v1.1 pullback rules. Send alert() calls, not order fills.
+// No sizing gate: MT5 independently checks its broker, account risk and existing positions.
+secret = input.string("", "Webhook secret (same as GOLD_WEBHOOK_SECRET)")
+pauseSignals = input.bool(false, "Pause NEW signals")
+rr = input.float(2.0, "Visual target R", minval=0.5, maxval=5)
+validTF = timeframe.period == "5" or timeframe.period == "60"
+isM5 = timeframe.period == "5"
+isGold = str.contains(str.upper(syminfo.ticker), "XAU") or str.contains(str.upper(syminfo.ticker), "GOLD")
+london = not na(time(timeframe.period, "0800-1100:23456", "Europe/London"))
+newyork = not na(time(timeframe.period, "0800-1100:23456", "America/New_York"))
+fast = ta.ema(close, 20)
+slow = ta.ema(close, 50)
+a = ta.atr(14)
+[hclose, hfast, hslow] = request.security(syminfo.tickerid, "60", [close[1], ta.ema(close, 20)[1], ta.ema(close, 50)[1]], lookahead=barmerge.lookahead_on)
+longBias = isM5 ? hclose > hfast and hfast > hslow : close > fast and fast > slow
+shortBias = isM5 ? hclose < hfast and hfast < hslow : close < fast and fast < slow
+touchLong = ta.lowest(low - fast, 4)[1] <= 0
+touchShort = ta.highest(high - fast, 4)[1] >= 0
+priorHigh = ta.highest(high, 6)[1]
+priorLow = ta.lowest(low, 6)[1]
+swingLow = ta.lowest(low, 6)
+swingHigh = ta.highest(high, 6)
+allowed = validTF and isGold and (london or newyork) and not pauseSignals and barstate.isconfirmed and bar_index >= 250
+longSignal = allowed and longBias and fast > slow and touchLong and close > priorHigh and close > open
+shortSignal = allowed and shortBias and fast < slow and touchShort and close < priorLow and close < open
+if longSignal or shortSignal
+    direction = longSignal ? 1 : -1
+    distance = math.max(direction == 1 ? close - swingLow : swingHigh - close, 1.5 * a)
+    stop = close - direction * distance
+    target = close + direction * distance * rr
+    label.new(bar_index, direction == 1 ? low : high, (direction == 1 ? "BUY" : "SELL") + "\nEntry " + str.tostring(close, format.mintick) + "\nSL " + str.tostring(stop, format.mintick) + "\nTP " + str.tostring(target, format.mintick), style=direction == 1 ? label.style_label_up : label.style_label_down, color=direction == 1 ? color.teal : color.maroon, textcolor=color.white)
+    if str.length(secret) >= 32
+        message = '{"version":1,"secret":"' + secret + '","ticker":"' + syminfo.tickerid + '","timeframe":"' + (isM5 ? "M5" : "H1") + '","bar_open":' + str.tostring(int(time / 1000)) + ',"direction":' + str.tostring(direction) + ',"setup":"session_pullback"}'
+        alert(message, alert.freq_once_per_bar_close)
+plot(fast, "EMA20", color.orange)
+plot(slow, "EMA50", color.gray)
+bgcolor(validTF and isGold ? na : color.new(color.red, 80), title="Unsupported chart")

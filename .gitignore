@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.sqlite3
+config.json
+data/private/
+artifacts/
+*.pt
+*.bin
+*.log
+news_calendar.json
